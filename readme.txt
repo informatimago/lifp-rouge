@@ -18,7 +18,7 @@ vandal - there are several types, but all of them are very evil
 
 troll - attacks people at random
 
-admin - can delete stuff and ban users (with banhammer). 
+admin - can delete stuff and ban users (with banhammer).
 
 bureaucrat - can promote users to admins.
 
