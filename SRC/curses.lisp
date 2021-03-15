@@ -147,11 +147,9 @@
 
 (defconstant +a-attributes+ #xffffff00)
 
-#+unix(defcfun ("COLOR_PAIR" color-pair) :int (color :int))
-
-#-unix
-(defun color-pair (n)
-  (ash n 24))
+#+unix (defcfun ("COLOR_PAIR" color-pair) :int (color :int))
+#-unix (defun color-pair (n)
+         (ash n 24))
 
 (defun color-code (attr)
   (case attr
