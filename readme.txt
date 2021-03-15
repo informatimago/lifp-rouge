@@ -1,4 +1,4 @@
-The Rougelike! 1.6
+The Rougelike! 1.61
 
 The game takes a satirical approach at Wikipedia[1]. Your character is
 a "rouge" admin, and you must commit as many outrageous actions as
