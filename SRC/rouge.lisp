@@ -1,4 +1,4 @@
-;;The Rougelike!
+;; The Rougelike!
 
 #|
 Ideas and notes:
@@ -14,40 +14,67 @@ Ideas and notes:
 *make it possible to configure keybindings +
 |#
 
-;;Table of contents:
-;;SECTION 1: Declarations + controls
-;;SECTION 1a: Stray class definitions
-;;SECTION 2: Tiles
-;;SECTION 3: Monsters
-;;SECTION 3a: Player
-;;SECTION 3b: Noob
-;;SECTION 3c: Vandal
-;;SECTION 3d: Normal User
-;;SECTION 3e: Admin
-;;SECTION 3f: Bureaucrat
-;;SECTION 3g: Jimbo
-;;SECTION 3h: Troll
-;;SECTION 4: Items
-;;SECTION 5: Actions
-;;SECTION 5a: Combat
-;;SECTION 6: "LOS" and Events
-;;SECTION 7: Stack processing
-;;SECTION 8: Generating dungeon
-;;SECTION 9: Printing routines
-;;SECTION 10: Main sequence
+;; Table of contents:
+;; SECTION 1: Declarations + controls
+;; SECTION 1a: Stray class definitions
+;; SECTION 2: Tiles
+;; SECTION 3: Monsters
+;; SECTION 3a: Player
+;; SECTION 3b: Noob
+;; SECTION 3c: Vandal
+;; SECTION 3d: Normal User
+;; SECTION 3e: Admin
+;; SECTION 3f: Bureaucrat
+;; SECTION 3g: Jimbo
+;; SECTION 3h: Troll
+;; SECTION 4: Items
+;; SECTION 5: Actions
+;; SECTION 5a: Combat
+;; SECTION 6: "LOS" and Events
+;; SECTION 7: Stack processing
+;; SECTION 8: Generating dungeon
+;; SECTION 9: Printing routines
+;; SECTION 10: Main sequence
 
 (in-package :cl-user)
 
 (defpackage :rougelike
+  (:nicknames :rouge)
   (:use :common-lisp :curses :md5)
-  (:shadow :time :speed :position))
+  (:shadow :time :speed :position)
+  (:export "START-GAME" "MAIN"))
 
 (in-package :rougelike)
 
-;;SECTION 1: Declarations + controls
+
+;; Program parameters:
+
+(defvar *source-directory*
+  (make-pathname :name nil :type nil :version nil
+                 :defaults (or *compile-file-truename* *load-truename* #P"./"))
+  "The pathname of the directory where the rouge.asd and other sources are stored.")
+
+(defvar *lisp-program* "sbcl"
+  "Path to the lisp program to use to run rouge.
+This is not necessarily the current lisp implementation.")
+
+(defvar *xterm-program* "xterm"
+  "Path to the xterm program.")
+
+(defvar *controls-configuration-path* "controls.cfg"
+  "Path tot he controls.cfg file.")
+
+(defvar *external-format* (progn
+                            #+clisp charset:utf-8
+                            #+sbcl :utf-8
+                            #-(or clisp sbcl) :default)
+  "External format to be used for the hiscore and controls.cfg files.")
+
+;; SECTION 1: Declarations + controls
 
 (defparameter *map* nil)
-(defparameter *dx* 2) (defparameter *dy* 1)
+(defparameter *dx* 2)
+(defparameter *dy* 1)
 (defparameter *roompoints* nil)
 (defparameter *monsterstack* nil
   "Each element is (monster . time)")
@@ -74,15 +101,25 @@ Ideas and notes:
     (setf (gethash i *controls*) action)))
 
 (defun init-controls ()
+  "Return whether controls.cfg could be loaded correctly."
   (setf *controls* (make-hash-table :test #'eql))
-  (when (probe-file "controls.cfg")
-    (with-open-file (i "controls.cfg")
-      (let* ((*read-eval* nil)
-             (remapping (read i)))
-        (loop for remap in remapping
-             do (apply #'control-bind
-                       (apply #'make-instance (car remap))
-                       (cdr remap)))))))
+  (handler-case
+   (loop
+     :for remap
+       :in (with-open-file (input *controls-configuration-path*
+                                  :external-format *external-format*
+                                  :if-does-not-exist :error)
+             (let* ((*package* (load-time-value (find-package "ROUGELIKE")))
+                    (*read-eval* nil))
+               (read input)))
+     :do (apply (function control-bind)
+                (apply (function make-instance) (car remap))
+                (cdr remap))
+     :finally (return t))
+   (error (err)
+          (format *error-output* "~%~A~%Cannot find control file. This sucks :(~%" err)
+          (finish-output *error-output*)
+          (signal err))))
 
 (defgeneric print-char (obj)
   (:documentation "Returns two values: a character that
@@ -95,7 +132,7 @@ Ideas and notes:
 (defun random-list (list)
   (nth (random (length list)) list))
 
-;;SECTION 1a: Stray class definitions
+;; SECTION 1a: Stray class definitions
 
 (defclass event ()
   ((interesting :initform t :initarg :interesting :accessor interesting)
@@ -127,7 +164,7 @@ Ideas and notes:
 (defclass e-c-hit (e-combat)
   ((damage :initarg :damage :accessor damage)))
 
-;;SECTION 2: Tiles
+;; SECTION 2: Tiles
 
 (defclass tile ()
   ((x :initarg :x :accessor x) (y :initarg :y :accessor y)
@@ -145,8 +182,8 @@ Ideas and notes:
 
 (defmethod description :around ((tile tile))
   (if (monster tile)
-      (format nil "~a ~a" (call-next-method) (description (monster tile)))
-      (call-next-method)))
+    (format nil "~a ~a" (call-next-method) (description (monster tile)))
+    (call-next-method)))
 
 (defclass concrete-floor (tile) ((passable :initform t)))
 
@@ -174,7 +211,7 @@ Ideas and notes:
 (defmethod description ((tile staircase))
   (format nil "A staircase leading ~a." (ecase (direction tile) (:u "up") (:d "down"))))
 
-;;SECTION 3: Monsters
+;; SECTION 3: Monsters
 
 (defgeneric ai (monster)
   (:documentation "When called, returns an action that monster
@@ -191,8 +228,8 @@ Ideas and notes:
   (:method (m e) (declare (ignore m e)) nil))
 
 
-;(defmethod react :before (mon event)
-;  (format t "Monster ~a reacts to event ~a.~%" mon event))
+;;(defmethod react :before (mon event)
+;;  (format t "Monster ~a reacts to event ~a.~%" mon event))
 
 (defclass monster ()
   ((name :initform "monster" :initarg :name :accessor name)
@@ -234,9 +271,9 @@ Ideas and notes:
         (cons (1- y) (1+ x)) (cons (1- y) (1- x))))
 
 (defun free-neighbor-deltas (y x)
-  (loop for n in (remove-if (lambda (a) (occupied (car a) (cdr a)))
-                            (neighbors y x))
-       collecting (cons (- (car n) y) (- (cdr n) x))))
+  (loop :for n :in (remove-if (lambda (a) (occupied (car a) (cdr a)))
+                              (neighbors y x))
+        :collecting (cons (- (car n) y) (- (cdr n) x))))
 
 (defun near (monster1 monster2)
   (and (<= (abs (- (x monster1) (x monster2))) 1)
@@ -244,9 +281,9 @@ Ideas and notes:
        (> (hp monster1) 0) (> (hp monster2) 0)))
 
 (defun nearby-monsters (monster)
-  (loop for tile in (neighbors (y monster) (x monster))
-        for m = (monster (aref *map* (car tile) (cdr tile)))
-        when m collect m))
+  (loop :for tile :in (neighbors (y monster) (x monster))
+        :for m := (monster (aref *map* (car tile) (cdr tile)))
+        :when m :collect m))
 
 (defun find-nearby-monster (monster type)
   (let ((mons (remove-if (complement (lambda (x) (typep x type)))
@@ -259,20 +296,21 @@ Ideas and notes:
     (let ((possible-moves (remove-if (lambda (a) (occupied (car a) (cdr a)))
                                      (neighbors y1 x1))))
       (when possible-moves
-      (loop with bestm = (car possible-moves)
-         with temp = 1000
-         for m in possible-moves
-         for d = (distance (car m) (cdr m) y2 x2)
-         when (< d temp) do (setf temp d bestm m)
-         finally (return bestm))))))
+        (loop :with bestm := (car possible-moves)
+              :with temp := 1000
+              :for m :in possible-moves
+              :for d := (distance (car m) (cdr m) y2 x2)
+              :when (< d temp)
+                :do (setf temp d bestm m)
+              :finally (return bestm))))))
 
 (defun anger (monster target)
   (unless (eql (state monster) :angry)
-    ;;(format t "~a gets angry.~%" monster)
+    ;; (format t "~a gets angry.~%" monster)
     (setf (state monster) :angry (target monster) target)
     (cast (make-instance 'e-m-angry :monster monster))))
 
-;;SECTION 3a: Player
+;; SECTION 3a: Player
 
 (defclass player (monster)
   ((name :initform "you")
@@ -285,25 +323,25 @@ Ideas and notes:
 (defmethod description ((monster player)) "You are here.")
 
 (defmethod ai ((monster player))
-  ;(format t "sending getch...")
+                                        ;(format t "sending getch...")
   (move (+ *dy* (y monster)) (+ *dx* (x monster))) (refresh)
   (let ((key (getch)))
     (multiple-value-bind (action present-p) (gethash key *controls*)
       (if present-p
-          (progn (if (zerop (time action)) (setf *zero-time-action* t))
-                 action)
-          (make-instance 'no-action :key key)))))
+        (progn (if (zerop (time action)) (setf *zero-time-action* t))
+               action)
+        (make-instance 'no-action :key key)))))
 
 (defmethod ai :before ((monster player))
   (show-status) (show-items (y *player*) (x *player*))
   (if *zero-time-action* (setf *zero-time-action* nil)
       (progn (setf *messages* (nreverse *messages*))
              (if *messages*
-                 (display-message (pop *messages*))
-                 (clean-line 0)))))
+               (display-message (pop *messages*))
+               (clean-line 0)))))
 
 (defmethod ai :after ((monster player))
-  ;(format t "<~a>~%" *zero-time-action*)
+                                        ;(format t "<~a>~%" *zero-time-action*)
   (unless *zero-time-action* (setf *messages* nil)))
 
 (defmethod kill ((monster player))
@@ -319,15 +357,15 @@ Ideas and notes:
     (when (eql monster *player*)
       (show-items y x))))
 
-;;SECTION 3b: Noob
+;; SECTION 3b: Noob
 
 (defclass noob (monster)
   ((name :initform "n00b")
    (max-hp :initform 1)
    (speed :initform 9/10)
    (state :initform :clueless)))
-   ;;(state :initform :angry)
-   ;;(target :initform *player*)));;:clueless)))
+;; (state :initform :angry)
+;; (target :initform *player*)));; :clueless)))
 
 (defmethod print-char ((monster noob)) (values #\n :CGREEN))
 
@@ -336,34 +374,34 @@ Ideas and notes:
 (defmethod ai ((monster noob) &aux temp)
   "Noob can be either clueless or angry."
   (case (state monster)
-    (:clueless ;;Walk around randomly, creating junk articles and
-               ;;screwing existing ones.
+    (:clueless ;; Walk around randomly, creating junk articles and
+     ;; screwing existing ones.
      (if (items (aref *map* (y monster) (X monster)))
-         (when (and (setf temp (find-good-article (y monster) (x monster)))
-                    (zerop (random 100)))
-           (return-from ai (make-instance 'vandalize :article temp)))
-         (progn
-           (case (random 300)
-             (0 (return-from ai (make-instance 'spawn-junk)))
-             (1 (return-from ai (make-instance 'spawn-good)))
-             (2 (return-from ai (make-instance 'spawn-userbox))))))
+       (when (and (setf temp (find-good-article (y monster) (x monster)))
+                  (zerop (random 100)))
+         (return-from ai (make-instance 'vandalize :article temp)))
+       (progn
+         (case (random 300)
+           (0 (return-from ai (make-instance 'spawn-junk)))
+           (1 (return-from ai (make-instance 'spawn-good)))
+           (2 (return-from ai (make-instance 'spawn-userbox))))))
      (let ((dx (1- (random 3)))
            (dy (1- (random 3))))
        (if (= dx dy 0) (return-from ai (ai monster))
            (make-instance 'move-to :dx dx :dy dy))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 40)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (state monster) :clueless) (setf (target monster) nil)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
 
 
@@ -385,7 +423,7 @@ Ideas and notes:
   (when (typep (defender event) 'noob)
     (anger monster (attacker event))))
 
-;;SECTION 3c: Vandal
+;; SECTION 3c: Vandal
 
 (defclass vandal (monster)
   ((name :initform "vandal")
@@ -401,29 +439,29 @@ Ideas and notes:
   (case (state monster)
     (:evil
      (if (items (aref *map* (y monster) (X monster)))
-         (when (setf temp (find-good-article (y monster) (x monster)))
-           (return-from ai (make-instance 'vandalize :article temp :severe t)))
-         (progn
-           (case (random 50)
-             (0 (return-from ai (make-instance 'spawn-junk))))))
+       (when (setf temp (find-good-article (y monster) (x monster)))
+         (return-from ai (make-instance 'vandalize :article temp :severe t)))
+       (progn
+         (case (random 50)
+           (0 (return-from ai (make-instance 'spawn-junk))))))
      (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
        (if fnd
-           (let ((d (random-list fnd)))
-             (make-instance 'move-to :dx (cdr d) :dy (car d)))
-           (make-instance 'wait))))
+         (let ((d (random-list fnd)))
+           (make-instance 'move-to :dx (cdr d) :dy (car d)))
+         (make-instance 'wait))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 40)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (state monster) :evil) (setf (target monster) nil)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
 (defmethod react ((monster vandal) (event e-c-miss))
   (when (typep (defender event) 'vandal)
@@ -447,33 +485,33 @@ Ideas and notes:
   (case (state monster)
     (:evil
      (if (items (aref *map* (y monster) (x monster)))
-         (when (setf temp (find-good-article (y monster) (x monster)))
-           (return-from ai (make-instance 'vandalize :article temp :severe t)))
-         (progn
-           (case (random 50)
-             (0 (return-from ai (make-instance 'spawn-junk))))))
+       (when (setf temp (find-good-article (y monster) (x monster)))
+         (return-from ai (make-instance 'vandalize :article temp :severe t)))
+       (progn
+         (case (random 50)
+           (0 (return-from ai (make-instance 'spawn-junk))))))
      (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
        (if fnd
-           (let ((d (random-list fnd)))
-             (if (= (random 20) 12)
-                 (make-instance 'spawn-sockpuppet
-                                :position (cons (+ (y monster) (car d))
-                                                (+ (x monster) (cdr d))))
-                  (make-instance 'move-to :dx (cdr d) :dy (car d))))
-           (make-instance 'wait))))
+         (let ((d (random-list fnd)))
+           (if (= (random 20) 12)
+             (make-instance 'spawn-sockpuppet
+               :position (cons (+ (y monster) (car d))
+                               (+ (x monster) (cdr d))))
+             (make-instance 'move-to :dx (cdr d) :dy (car d))))
+         (make-instance 'wait))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 40)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (state monster) :evil) (setf (target monster) nil)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
 (defclass sockpuppet (vandal)
   ((name :initform "sockpuppet")
@@ -499,22 +537,22 @@ Ideas and notes:
   (case (state monster)
     (:evil
      (if (items (aref *map* (y monster) (x monster)))
-         (when (setf temp (find-good-article (y monster) (x monster)))
-           (return-from ai (make-instance 'vandalize :article temp :severe t)))
-         (progn
-           (case (random 3)
-             (0 (return-from ai (make-instance 'spawn-junk))))))
+       (when (setf temp (find-good-article (y monster) (x monster)))
+         (return-from ai (make-instance 'vandalize :article temp :severe t)))
+       (progn
+         (case (random 3)
+           (0 (return-from ai (make-instance 'spawn-junk))))))
      (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
        (if fnd
-           (let ((d (random-list fnd)))
-             (make-instance 'move-to :dx (cdr d) :dy (car d)))
-           (make-instance 'wait))))))
+         (let ((d (random-list fnd)))
+           (make-instance 'move-to :dx (cdr d) :dy (car d)))
+         (make-instance 'wait))))))
 
 (defmethod react ((monster vandalbot) (event e-c-miss)) nil)
 
 (defmethod react ((monster vandalbot) (event e-c-hit)) nil)
 
-;;SECTION 3d: Normal User
+;; SECTION 3d: Normal User
 
 
 (defclass user (monster)
@@ -523,8 +561,8 @@ Ideas and notes:
    (speed :initform 1)
    (state :initform :normal)
    (karma :initform 10)))
-   ;;(state :initform :angry)
-   ;;(target :initform *player*)));;:clueless)))
+;; (state :initform :angry)
+;; (target :initform *player*)));; :clueless)))
 
 (defmethod update-instance-for-different-class ((prev noob) (new user) &key)
   (setf (max-hp new) 5 (hp new) 5 (speed new) 1
@@ -540,30 +578,30 @@ Ideas and notes:
   (case (state monster)
     (:normal
      (if (items (aref *map* (y monster) (X monster)))
-         (when (setf temp (find-vandalized-article (y monster) (x monster)))
-           (return-from ai (make-instance 'rollback :article temp)))
-         (progn
-           (case (random 300)
-             ((0 1 3) (return-from ai (make-instance 'spawn-good)))
-             (2 (return-from ai (make-instance 'spawn-userbox))))))
+       (when (setf temp (find-vandalized-article (y monster) (x monster)))
+         (return-from ai (make-instance 'rollback :article temp)))
+       (progn
+         (case (random 300)
+           ((0 1 3) (return-from ai (make-instance 'spawn-good)))
+           (2 (return-from ai (make-instance 'spawn-userbox))))))
      (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
        (if fnd
-           (let ((d (random-list fnd)))
-             (make-instance 'move-to :dx (cdr d) :dy (car d)))
-           (make-instance 'wait))))
+         (let ((d (random-list fnd)))
+           (make-instance 'move-to :dx (cdr d) :dy (car d)))
+         (make-instance 'wait))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 30)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (state monster) :normal) (setf (target monster) nil)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
 (defmethod react ((monster user) (event e-delete-good))
   (anger monster (monster event)))
@@ -587,7 +625,7 @@ Ideas and notes:
     (anger monster (monster event))))
 
 
-;;SECTION 3e: Admin
+;; SECTION 3e: Admin
 
 (defclass admin (monster)
   ((name :initform "admin")
@@ -617,39 +655,39 @@ Ideas and notes:
   (case (state monster)
     (:normal
      (if (items (aref *map* (y monster) (X monster)))
-         (progn
-           (when (setf temp (find-vandalized-article (y monster) (x monster)))
-             (return-from ai (make-instance 'rollback :article temp)))
-           (when (setf temp (find-junk-article (y monster) (x monster)))
-             (return-from ai (make-instance 'delete-item :item temp)))
-           (when (and (not (pro-userbox monster))
-                      (setf temp (find-userbox (y monster) (x monster))))
-             (when (zerop (random 2))
-               (return-from ai (make-instance 'delete-item :item temp)))))
-         (progn
-           (case (random 200)
-             (0 (return-from ai (make-instance 'spawn-good))))))
+       (progn
+         (when (setf temp (find-vandalized-article (y monster) (x monster)))
+           (return-from ai (make-instance 'rollback :article temp)))
+         (when (setf temp (find-junk-article (y monster) (x monster)))
+           (return-from ai (make-instance 'delete-item :item temp)))
+         (when (and (not (pro-userbox monster))
+                    (setf temp (find-userbox (y monster) (x monster))))
+           (when (zerop (random 2))
+             (return-from ai (make-instance 'delete-item :item temp)))))
+       (progn
+         (case (random 200)
+           (0 (return-from ai (make-instance 'spawn-good))))))
      (when (setf temp (find-nearby-monster monster 'noob))
        (when (zerop (random 4))
          (return-from ai (make-instance 'welcome :monster temp))))
      (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
        (if fnd
-           (let ((d (random-list fnd)))
-             (make-instance 'move-to :dx (cdr d) :dy (car d)))
-           (make-instance 'wait))))
+         (let ((d (random-list fnd)))
+           (make-instance 'move-to :dx (cdr d) :dy (car d)))
+         (make-instance 'wait))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 50)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (state monster) :normal) (setf (target monster) nil)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
 (defmethod react ((monster admin) (event e-delete-good))
   (anger monster (monster event)))
@@ -664,7 +702,7 @@ Ideas and notes:
       ((eql monster (defender event)) (anger monster (attacker event)))
       ((eql monster (attacker event)) (anger monster (defender event)))
       (t (if (<= (karma (attacker event)) (karma (defender event)))
-                 (anger monster (attacker event)))))))
+           (anger monster (attacker event)))))))
 
 
 (defmethod react ((monster admin) (event e-c-hit))
@@ -673,7 +711,7 @@ Ideas and notes:
       ((eql monster (defender event)) (anger monster (attacker event)))
       ((eql monster (attacker event)) (anger monster (defender event)))
       (t (if (<= (karma (attacker event)) (karma (defender event)))
-                 (anger monster (attacker event)))))))
+           (anger monster (attacker event)))))))
 
 (defmethod react ((monster admin) (event e-step))
   (when (and (not (eql (monster event) monster))
@@ -703,7 +741,7 @@ Ideas and notes:
 
 
 
-;;SECTION 3f: Bureaucrat
+;; SECTION 3f: Bureaucrat
 
 
 (defclass bureaucrat (monster)
@@ -725,36 +763,36 @@ Ideas and notes:
   (case (state monster)
     (:normal
      (if (items (aref *map* (y monster) (X monster)))
-         (progn
-           (when (setf temp (find-vandalized-article (y monster) (x monster)))
-             (return-from ai (make-instance 'rollback :article temp)))
-           (when (setf temp (find-junk-article (y monster) (x monster)))
-             (return-from ai (make-instance 'delete-item :item temp))))
-         )
+       (progn
+         (when (setf temp (find-vandalized-article (y monster) (x monster)))
+           (return-from ai (make-instance 'rollback :article temp)))
+         (when (setf temp (find-junk-article (y monster) (x monster)))
+           (return-from ai (make-instance 'delete-item :item temp))))
+       )
      (when (setf temp (find-nearby-monster monster 'user))
        (when (and (> (karma temp) 50) (zerop (random 4)))
          (return-from ai (make-instance 'promote :monster temp))))
      (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
        (if fnd
-           (let ((d (random-list fnd)))
-             (make-instance 'move-to :dx (cdr d) :dy (car d)))
-           (make-instance 'wait))))
+         (let ((d (random-list fnd)))
+           (make-instance 'move-to :dx (cdr d) :dy (car d)))
+         (make-instance 'wait))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 20)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (state monster) :normal)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
-;(defmethod react ((monster bureaucrat) (event e-delete-good))
-;  (anger monster (monster event)))
+                                        ;(defmethod react ((monster bureaucrat) (event e-delete-good))
+                                        ;  (anger monster (monster event)))
 
 (defmethod react ((monster bureaucrat) (event e-c-miss))
   (when (typep (defender event) 'bureaucrat)
@@ -762,7 +800,7 @@ Ideas and notes:
       ((eql monster (defender event)) (anger monster (attacker event)))
       ((eql monster (attacker event)) (anger monster (defender event)))
       (t (if (<= (karma (attacker event)) (karma (defender event)))
-                 (anger monster (attacker event)))))))
+           (anger monster (attacker event)))))))
 
 (defmethod react ((monster bureaucrat) (event e-c-hit))
   (when (typep (defender event) 'bureaucrat)
@@ -770,10 +808,10 @@ Ideas and notes:
       ((eql monster (defender event)) (anger monster (attacker event)))
       ((eql monster (attacker event)) (anger monster (defender event)))
       (t (if (<= (karma (attacker event)) (karma (defender event)))
-                 (anger monster (attacker event)))))))
+           (anger monster (attacker event)))))))
 
 
-;;SECTION 3g: Jimbo
+;; SECTION 3g: Jimbo
 
 (defclass jimbo (monster)
   ((name :initform "Jimbo")
@@ -794,30 +832,30 @@ Ideas and notes:
   (case (state monster)
     (:normal
      (if (items (aref *map* (y monster) (X monster)))
-         (progn
-           (when (setf temp (find-good-article (y monster) (x monster)))
-             (when (zerop (random 10)) ;;[[WP:OFFICE]] :)
-               (return-from ai (make-instance 'delete-item :item temp))))
-           )
+       (progn
+         (when (setf temp (find-good-article (y monster) (x monster)))
+           (when (zerop (random 10)) ;; [[WP:OFFICE]] :)
+             (return-from ai (make-instance 'delete-item :item temp))))
          )
+       )
      (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
        (if fnd
-           (let ((d (random-list fnd)))
-             (make-instance 'move-to :dx (cdr d) :dy (car d)))
-           (make-instance 'wait))))
+         (let ((d (random-list fnd)))
+           (make-instance 'move-to :dx (cdr d) :dy (car d)))
+         (make-instance 'wait))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 50)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (state monster) :normal) (setf (target monster) nil)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
 (defmethod react ((monster jimbo) (event e-c-miss))
   (when (typep (defender event) 'jimbo)
@@ -825,7 +863,7 @@ Ideas and notes:
       ((eql monster (defender event)) (anger monster (attacker event)))
       ((eql monster (attacker event)) (anger monster (defender event)))
       (t (if (<= (karma (attacker event)) (karma (defender event)))
-                 (anger monster (attacker event)))))))
+           (anger monster (attacker event)))))))
 
 (defmethod react ((monster jimbo) (event e-c-hit))
   (when (typep (defender event) 'jimbo)
@@ -833,14 +871,14 @@ Ideas and notes:
       ((eql monster (defender event)) (anger monster (attacker event)))
       ((eql monster (attacker event)) (anger monster (defender event)))
       (t (if (<= (karma (attacker event)) (karma (defender event)))
-                 (anger monster (attacker event)))))))
+           (anger monster (attacker event)))))))
 
 (defmethod kill ((monster jimbo))
   (setf *quitflag* :jimbo)
   (display-simple-message "OMG! Jimbo has closed Wikipedia!")
   (call-next-method))
 
-;;SECTION 3h: Troll
+;; SECTION 3h: Troll
 
 (defclass troll (monster)
   ((name :initform "troll")
@@ -857,35 +895,35 @@ Ideas and notes:
   (case (state monster)
     (:trollish
      (unless (target monster) (return-from ai
-       (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
-         (if fnd
-             (let ((d (random-list fnd)))
-               (make-instance 'move-to :dx (cdr d) :dy (car d)))
-             (make-instance 'wait)))))
+                                (let ((fnd (free-neighbor-deltas (y monster) (x monster))))
+                                  (if fnd
+                                    (let ((d (random-list fnd)))
+                                      (make-instance 'move-to :dx (cdr d) :dy (car d)))
+                                    (make-instance 'wait)))))
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 10)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (target monster) nil)
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))
     (:angry
      (when (near monster (target monster))
-       ;;(format t "ATTACK!~%")
+       ;; (format t "ATTACK!~%")
        (return-from ai (make-instance 'attack :monster (target monster))))
      (when (or (<= (hp (target monster)) 0) (zerop (random 30)))
-       ;;Cooling off
+       ;; Cooling off
        (setf (target monster) nil) (setf (state monster) :trollish)
        (cast (make-instance 'e-m-calm :monster monster))
        (return-from ai (ai monster)))
      (destructuring-bind (yy . xx) (follow monster (target monster))
        (return-from ai (make-instance 'move-to
-                                      :dx (- xx (x monster))
-                                      :dy (- yy (y monster))))))))
+                         :dx (- xx (x monster))
+                         :dy (- yy (y monster))))))))
 
 (defmethod react ((monster troll) (event e-c-miss))
   (when (or (typep (defender event) 'troll) (typep (defender event) 'vandal))
@@ -900,7 +938,7 @@ Ideas and notes:
     (setf (target monster) (monster event))))
 
 
-;;SECTION 4: Items
+;; SECTION 4: Items
 
 (defclass item ()
   ((name :initarg :name :accessor name)
@@ -946,37 +984,45 @@ Ideas and notes:
 
 (defun find-article-or-userbox (y x)
   (let ((items (items (aref *map* y x))))
-    (loop for x in items
-          when (or (typep x 'good-article)
-                   (typep x 'junk-article)
-                   (typep x 'userbox)) do (return x)
-          finally (return nil))))
+    (loop :for x :in items
+          :when (or (typep x 'good-article)
+                    (typep x 'junk-article)
+                    (typep x 'userbox))
+            :do (return x)
+          :finally (return nil))))
 
 (defun find-userbox (y x)
   (let ((items (items (aref *map* y x))))
-    (loop for x in items
-          when (typep x 'userbox) do (return x)
-          finally (return nil))))
+    (loop :for x :in items
+          :when (typep x 'userbox)
+            :do (return x)
+          :finally (return nil))))
 
 (defun find-good-article (y x)
   (let ((items (items (aref *map* y x))))
-    (loop for x in items
-          when (and (typep x 'good-article) (quality x)) do (return x)
-          finally (return nil))))
+    (loop :for x :in items
+          :when (and (typep x 'good-article) (quality x))
+            :do (return x)
+          :finally (return nil))))
 
 (defun find-junk-article (y x)
   (let ((items (items (aref *map* y x))))
-    (loop for x in items
-          when (typep x 'junk-article) do (return x)
-          finally (return nil))))
+    (loop :for x :in items
+          :when (typep x 'junk-article)
+            :do (return x)
+          :finally (return nil))))
 
 (defun find-vandalized-article (y x)
   (let ((items (items (aref *map* y x))))
-    (loop for x in items
-          when (and (typep x 'good-article) (not (quality x))) do (return x)
-          finally (return nil))))
+    (loop :for x :in items
+          :when (and (typep x 'good-article) (not (quality x)))
+            :do (return x)
+          :finally (return nil))))
 
 (defclass weapon (item) ())
+
+(defun weaponp (item)
+  (typep item 'weapon))
 
 (defclass banhammer (weapon)
   ((name :initform "banhammer")))
@@ -994,7 +1040,7 @@ Ideas and notes:
 
 (defmethod damage ((weapon jimbo-banhammer)) (+ 5 (random 5)))
 
-;;SECTION 5: Actions
+;; SECTION 5: Actions
 
 (defclass action ()
   ((time :initform 5 :initarg :time :accessor time)))
@@ -1026,14 +1072,14 @@ Ideas and notes:
       (when (or (> (abs dy) 1) (> (abs dx) 1)) (return-from do-action nil))
       (let ((monster? (monster (aref *map* (+ y dy) (+ x dx)))))
         (if monster?
-            (if (or (eql (state monster?) :angry)
-                    (eql (state monster?) :evil)
-                    (eql (state monster?) :trollish)
-                    (yes-or-no "Do you really want to attack?"))
-                (do-action monster
-                  (make-instance 'attack :monster monster?))
-                nil)
-            (call-next-method))))))
+          (if (or (eql (state monster?) :angry)
+                  (eql (state monster?) :evil)
+                  (eql (state monster?) :trollish)
+                  (yes-or-no "Do you really want to attack?"))
+            (do-action monster
+              (make-instance 'attack :monster monster?))
+            nil)
+          (call-next-method))))))
 
 (defclass wait (action) ((time :initform 5)))
 
@@ -1059,7 +1105,7 @@ Ideas and notes:
 
 (defmethod do-action ((monster player) (action next-message))
   (setf *zero-time-action* t)
-  ;(format t "~a~%" *messages*)
+                                        ;(format t "~a~%" *messages*)
   (display-message (pop *messages*)))
 
 (defclass recap (action) ((time :initform 0)))
@@ -1084,13 +1130,13 @@ Ideas and notes:
             ((57 451) (incf xx) (decf yy))
             ((55 449) (decf xx) (decf yy))
             ((27 113 169 108 164 13 32) (return)))
-       (when (< xx 0) (setf xx 0))
-       (when (< yy 0) (setf yy 0))
-       (when (> xx 75) (setf xx 75))
-       (when (> yy 20) (setf yy 20))
-       (display-simple-message (description (aref *map* yy xx)))
-       (show-items yy xx)
-       (move (+ yy *dy*) (+ xx *dx*)) (refresh))
+          (when (< xx 0) (setf xx 0))
+          (when (< yy 0) (setf yy 0))
+          (when (> xx 75) (setf xx 75))
+          (when (> yy 20) (setf yy 20))
+          (display-simple-message (description (aref *map* yy xx)))
+          (show-items yy xx)
+          (move (+ yy *dy*) (+ xx *dx*)) (refresh))
     (show-items yy xx)
     (move (+ yy *dy*) (+ xx *dx*)) (refresh)))
 
@@ -1190,24 +1236,24 @@ Ideas and notes:
 
 (defmethod do-action :after (monster (action delete-item))
   (unless (typep action 'delete-item-on-spot)
-  (typecase (item action)
-    (good-article
-     (if (typep monster 'jimbo)
+    (typecase (item action)
+      (good-article
+       (if (typep monster 'jimbo)
          (cast (make-instance 'e-office
-                              :monster monster
-                              :item (item action)))
+                 :monster monster
+                 :item (item action)))
          (progn (cast (make-instance 'e-delete-good
-                                     :monster monster
-                                     :item (item action)))
+                        :monster monster
+                        :item (item action)))
                 (decf (karma monster) 15) (incf (rouge monster) 10))))
-    (junk-article (cast (make-instance 'e-delete-junk
-                                       :monster monster
-                                       :item (item action)))
-                  (incf (karma monster) 5))
-    (userbox (cast (make-instance 'e-delete-userbox
-                                  :monster monster
-                                  :item (item action)))
-                  (decf (karma monster) 0) (incf (rouge monster) 5)))))
+      (junk-article (cast (make-instance 'e-delete-junk
+                            :monster monster
+                            :item (item action)))
+                    (incf (karma monster) 5))
+      (userbox (cast (make-instance 'e-delete-userbox
+                       :monster monster
+                       :item (item action)))
+               (decf (karma monster) 0) (incf (rouge monster) 5)))))
 
 
 (defclass delete-item-on-spot (delete-item)
@@ -1226,8 +1272,8 @@ Ideas and notes:
 
 (defmethod do-action :before (monster (action welcome))
   (cast (make-instance 'e-welcome
-                       :monster1 monster
-                       :monster2 (monster action))))
+          :monster1 monster
+          :monster2 (monster action))))
 
 (defmethod do-action (monster (action welcome))
   (declare (ignore monster))
@@ -1245,13 +1291,13 @@ Ideas and notes:
 (defmethod do-action ((monster player) (action welcome-dir))
   (let ((dir (choose-direction)))
     (if dir
-        (let ((mon (monster (aref *map*
-                                  (+ (y monster) (car dir))
-                                  (+ (x monster) (cdr dir))))))
-          (if (typep mon 'noob)
-              (do-action monster (make-instance 'welcome :monster mon))
-              (message "No suitable noob here.")))
-        (message "You decide not to welcome anyone."))))
+      (let ((mon (monster (aref *map*
+                                (+ (y monster) (car dir))
+                                (+ (x monster) (cdr dir))))))
+        (if (typep mon 'noob)
+          (do-action monster (make-instance 'welcome :monster mon))
+          (message "No suitable noob here.")))
+      (message "You decide not to welcome anyone."))))
 
 
 
@@ -1261,8 +1307,8 @@ Ideas and notes:
 
 (defmethod do-action :before (monster (action promote))
   (cast (make-instance 'e-promote
-                       :monster1 monster
-                       :monster2 (monster action))))
+          :monster1 monster
+          :monster2 (monster action))))
 
 (defmethod do-action (monster (action promote))
   (declare (ignore monster))
@@ -1270,7 +1316,7 @@ Ideas and notes:
     (change-class (monster action) 'admin)
     (out-char (monster action))))
 
-;;SECTION 5a: Combat
+;; SECTION 5a: Combat
 
 (defclass attack (action)
   ((monster :initarg :monster :accessor monster)
@@ -1315,8 +1361,8 @@ Ideas and notes:
   (let ((dam (damage mon1))
         (prev (random (armor-pv mon2))))
     (if (> dam prev)
-        (progn (decf (hp mon2) (- dam prev)) (- dam prev))
-        0)))
+      (progn (decf (hp mon2) (- dam prev)) (- dam prev))
+      0)))
 
 (defmethod do-action :before (monster (attack attack))
   (let ((banhammer-mod (if (typep (weapon monster) 'banhammer) 2 1))
@@ -1336,42 +1382,42 @@ Ideas and notes:
 
 (defmethod do-action (monster (attack attack))
   (with-slots ((monster2 monster)) attack
-    ;;(format t "~a attacks ~a. ~%" monster monster2)
+    ;; (format t "~a attacks ~a. ~%" monster monster2)
     (if (hit-p monster monster2)
-        (let ((dam (hit monster monster2)))
-          (if (> dam 0) (cast (make-instance 'e-c-hit
-                                             :attacker monster
-                                             :defender monster2
-                                             :damage dam))
-              (cast (make-instance 'e-c-miss
-                                   :attacker monster
-                                   :defender monster2)))
-          (when (<= (hp monster2) 0) (kill monster2)))
-        (cast (make-instance 'e-c-miss
-                             :attacker monster
-                             :defender monster2)))))
+      (let ((dam (hit monster monster2)))
+        (if (> dam 0) (cast (make-instance 'e-c-hit
+                              :attacker monster
+                              :defender monster2
+                              :damage dam))
+            (cast (make-instance 'e-c-miss
+                    :attacker monster
+                    :defender monster2)))
+        (when (<= (hp monster2) 0) (kill monster2)))
+      (cast (make-instance 'e-c-miss
+              :attacker monster
+              :defender monster2)))))
 
 
 (defclass switch-weapon (action)
   ((time :initform 3)))
 
+(defun weaponp (inventory) (typep inventory 'weapon))
+
 (defun find-weapon (monster)
-  (loop for x in (inventory monster)
-       when (typep x 'weapon) do (return x)
-       finally (return nil)))
+  (find-if (function weaponp) (inventory monster)))
 
 (defmethod do-action ((monster player) (action switch-weapon))
   (if (weapon monster)
-      (progn (setf (weapon monster) nil)
-             (message "You are now using word as a primary weapon."))
-      (progn (setf (weapon monster) (find-weapon monster))
-             (if (weapon monster)
-                 (message "You are now using ~a as a primary weapon."
+    (progn (setf (weapon monster) nil)
+           (message "You are now using word as a primary weapon."))
+    (progn (setf (weapon monster) (find-weapon monster))
+           (if (weapon monster)
+             (message "You are now using ~a as a primary weapon."
                       (name (weapon monster)))
-                 (message "You have no weapons.")))))
+             (message "You have no weapons.")))))
 
 
-;;SECTION 6: "LOS" and Events
+;; SECTION 6: "LOS" and Events
 
 (defun distance (y1 x1 y2 x2)
   (let ((dy (abs (- y1 y2)))
@@ -1392,14 +1438,14 @@ Ideas and notes:
 
 (defmethod cast :before (event)
   (declare (ignorable event))
-  ;(format t "Event ~A casted.~%" event)
+                                        ;(format t "Event ~A casted.~%" event)
   (push (cons *curmonster* 0) *monsterstack*))
 
 (defmethod cast (event)
-  (loop for m in (remove-duplicates *monsterstack* :key #'car)
-        for mon = (car m)
-        when (aware-p mon (y event) (x event))
-        do (react mon event)))
+  (loop :for m :in (remove-duplicates *monsterstack* :key #'car)
+        :for mon := (car m)
+        :when (aware-p mon (y event) (x event))
+          :do (react mon event)))
 
 (defmethod cast :after (event)
   (declare (ignore event))
@@ -1411,11 +1457,11 @@ Ideas and notes:
 
 (defmethod cast ((event e-combat))
   (with-slots (attacker defender) event
-    (loop for m in (remove-duplicates *monsterstack* :key #'car)
-       for mon = (car m)
-       when (or (aware-p mon (y attacker) (x attacker))
-                (aware-p mon (y defender) (x defender)))
-       do (react mon event))))
+    (loop :for m :in (remove-duplicates *monsterstack* :key #'car)
+          :for mon := (car m)
+          :when (or (aware-p mon (y attacker) (x attacker))
+                   (aware-p mon (y defender) (x defender)))
+            :do (react mon event))))
 
 (defgeneric combat-situation (attacker defender result)
   (:documentation "Describe a combat situation"))
@@ -1424,7 +1470,7 @@ Ideas and notes:
 (defgeneric attack-word (weapon form)
   (:documentation "Returns a verb that would be used in a combat message")
   (:method (weapon form) (declare (ignore weapon))
-           (if (eql form :he) "hits" "hit")))
+    (if (eql form :he) "hits" "hit")))
 
 (defmethod attack-word ((weapon (eql nil)) form)
   (if (eql form :he) "makes a personal attack on"
@@ -1432,23 +1478,23 @@ Ideas and notes:
 
 (defmethod combat-situation (att def result)
   (format nil "~@(~a~) ~a ~a ~a."
-                 (name att) (attack-word (weapon att) :he)
-                 (name def)
-                 (if (eql result :hit) "and succeeds"
-                     (format nil "but ~a is not impressed" (name def)))))
+          (name att) (attack-word (weapon att) :he)
+          (name def)
+          (if (eql result :hit) "and succeeds"
+              (format nil "but ~a is not impressed" (name def)))))
 
 (defmethod combat-situation ((att player) def result)
   (format nil "You ~a ~a ~a."
-                 (attack-word (weapon att) :you)
-                 (name def)
-                 (if (eql result :hit) "and succeed"
-                     (format nil "but ~a is not impressed" (name def)))))
+          (attack-word (weapon att) :you)
+          (name def)
+          (if (eql result :hit) "and succeed"
+              (format nil "but ~a is not impressed" (name def)))))
 
 (defmethod combat-situation (att (def player) result)
   (format nil "~@(~a~) ~a you ~a."
-                 (name att) (attack-word (weapon att) :he)
-                 (if (eql result :hit) "and succeeds"
-                     (format nil "but you are not impressed" (name def)))))
+          (name att) (attack-word (weapon att) :he)
+          (if (eql result :hit) "and succeeds"
+              (format nil "but you are not impressed" (name def)))))
 
 (defclass e-c-hit (e-combat)
   ((damage :initarg :damage :accessor damage)))
@@ -1467,25 +1513,25 @@ Ideas and notes:
   ((monster :initarg :monster :accessor monster)))
 
 (defmethod cast ((event e-monster))
-  (loop for m in (remove-duplicates *monsterstack* :key #'car)
-        for mon = (car m)
-        when (aware-p mon (y (monster event)) (x (monster event)))
-        do (react mon event)))
+  (loop :for m :in (remove-duplicates *monsterstack* :key #'car)
+        :for mon := (car m)
+        :when (aware-p mon (y (monster event)) (x (monster event)))
+          :do (react mon event)))
 
 (defclass e-dead (e-monster) ())
 
 (defmethod description ((event e-dead))
   (if (eql (monster event) *player*)
-      (display-simple-message "That's it. You're OUT!")
-      (let ((dead-message
-             (list "~@(~a~) takes an indefinite wikibreak."
-                   "~@(~a~) will be missed."
-                   "Not even Esperanza could save ~a."
-                   "~@(~a~) joins the company of Lir and MSK on Wikipedia Review."
-                   "~@(~a~) has left the building."
-                   "~@(~a~) leaves and vows never to return again.")))
-        (format nil (nth (random (length dead-message)) dead-message)
-                (name (monster event))))))
+    (display-simple-message "That's it. You're OUT!")
+    (let ((dead-message
+           (list "~@(~a~) takes an indefinite wikibreak."
+                 "~@(~a~) will be missed."
+                 "Not even Esperanza could save ~a."
+                 "~@(~a~) joins the company of Lir and MSK on Wikipedia Review."
+                 "~@(~a~) has left the building."
+                 "~@(~a~) leaves and vows never to return again.")))
+      (format nil (nth (random (length dead-message)) dead-message)
+              (name (monster event))))))
 
 (defclass e-step (event)
   ((interesting :initform nil)
@@ -1496,28 +1542,28 @@ Ideas and notes:
    (item :initarg :item :initform nil :accessor item)))
 
 (defmethod cast ((event e-item))
-  (loop for m in (remove-duplicates *monsterstack* :key #'car)
-        for mon = (car m)
-        when (aware-p mon (y (monster event)) (x (monster event)))
-        do (react mon event)))
+  (loop :for m :in (remove-duplicates *monsterstack* :key #'car)
+        :for mon := (car m)
+        :when (aware-p mon (y (monster event)) (x (monster event)))
+          :do (react mon event)))
 
 (defclass e-spawn-userbox (e-item) ())
 
 (defmethod description ((event e-spawn-userbox))
   (format nil "~a create~a a pesky userbox."
           (if (eql (monster event) *player*)
-              "You" (name (monster event)))
+            "You" (name (monster event)))
           (if (eql (monster event) *player*)
-              "" "s")))
+            "" "s")))
 
 (defclass e-spawn-junk (e-item) ())
 
 (defmethod description ((event e-spawn-junk))
   (format nil "~a create~a ~a."
           (if (eql (monster event) *player*)
-              "You" (name (monster event)))
+            "You" (name (monster event)))
           (if (eql (monster event) *player*)
-              "" "s")
+            "" "s")
           (case (random 4)
             (0 "an article about himself")
             (1 "an article about some unknown band")
@@ -1529,48 +1575,48 @@ Ideas and notes:
 (defmethod description ((event e-spawn-good))
   (format nil "~a create~a a new article."
           (if (eql (monster event) *player*)
-              "You" (name (monster event)))
+            "You" (name (monster event)))
           (if (eql (monster event) *player*)
-              "" "s")))
+            "" "s")))
 
 (defclass e-vandalize (e-item) ((severe :initarg :severe :initform nil
                                         :accessor severe)))
 
 (defmethod description ((event e-vandalize))
   (if (severe event)
-      (format nil "~a ~a."
-              (if (eql (monster event) *player*)
-                  "You" (name (monster event)))
-              (format nil
-                      (case (random 4)
-                        (0 "insert~a a giant picture of a human penis into an article")
-                        (1 "move~a an article to its \"ON WHEELS\" destination")
-                        (2 "turn~a an article into a thorough guide to pelican shit")
-                        (3 "blank~a an article, replacing it with hammer and sickle picture"))
-                      (if (eql (monster event) *player*) "" "s")))
-      (format nil "~a make~a a \"test\" edit to an article."
-              (if (eql (monster event) *player*)
-                  "You" (name (monster event)))
-              (if (eql (monster event) *player*)
-                  "" "s"))))
+    (format nil "~a ~a."
+            (if (eql (monster event) *player*)
+              "You" (name (monster event)))
+            (format nil
+              (case (random 4)
+                (0 "insert~a a giant picture of a human penis into an article")
+                (1 "move~a an article to its \"ON WHEELS\" destination")
+                (2 "turn~a an article into a thorough guide to pelican shit")
+                (3 "blank~a an article, replacing it with hammer and sickle picture"))
+              (if (eql (monster event) *player*) "" "s")))
+    (format nil "~a make~a a \"test\" edit to an article."
+            (if (eql (monster event) *player*)
+              "You" (name (monster event)))
+            (if (eql (monster event) *player*)
+              "" "s"))))
 
 (defclass e-rollback (e-item) ())
 
 (defmethod description ((event e-rollback))
   (format nil "~a revert~a an act of vandalism."
           (if (eql (monster event) *player*)
-              "You" (name (monster event)))
+            "You" (name (monster event)))
           (if (eql (monster event) *player*)
-              "" "s")))
+            "" "s")))
 
 (defclass e-delete-item (e-item) ())
 
 (defmethod description ((event e-delete-item))
   (format nil "~a delete~a a ~a."
           (if (eql (monster event) *player*)
-              "You" (name (monster event)))
+            "You" (name (monster event)))
           (if (eql (monster event) *player*)
-              "" "s")
+            "" "s")
           (name (item event))))
 
 (defclass e-delete-good (e-delete-item) ())
@@ -1580,9 +1626,9 @@ Ideas and notes:
 (defmethod description ((event e-office))
   (format nil "~a delete~a an article per WP:OFFICE!"
           (if (eql (monster event) *player*)
-              "You" (name (monster event)))
+            "You" (name (monster event)))
           (if (eql (monster event) *player*)
-              "" "s")))
+            "" "s")))
 
 (defclass e-delete-junk (e-delete-item) ())
 
@@ -1604,20 +1650,20 @@ Ideas and notes:
 
 (defmethod cast ((event e-interaction))
   (with-slots (monster1 monster2) event
-    (loop for m in (remove-duplicates *monsterstack* :key #'car)
-       for mon = (car m)
-       when (or (aware-p mon (y monster1) (x monster1))
-                (aware-p mon (y monster2) (x monster2)))
-       do (react mon event))))
+    (loop :for m :in (remove-duplicates *monsterstack* :key #'car)
+          :for mon := (car m)
+          :when (or (aware-p mon (y monster1) (x monster1))
+                   (aware-p mon (y monster2) (x monster2)))
+            :do (react mon event))))
 
 (defclass e-welcome (e-interaction) ())
 
 (defmethod description ((event e-welcome))
   (format nil "~a welcome~a ~a. ~@(~a~) is now a dedicated user."
           (if (eql (monster1 event) *player*)
-              "You" (name (monster1 event)))
+            "You" (name (monster1 event)))
           (if (eql (monster1 event) *player*)
-              "" "s")
+            "" "s")
           (name (monster2 event)) (name (monster2 event))))
 
 (defclass e-promote (e-interaction) ())
@@ -1625,31 +1671,31 @@ Ideas and notes:
 (defmethod description ((event e-promote))
   (format nil "~a promote~a ~a. ~@(~a~) is now an admin."
           (if (eql (monster1 event) *player*)
-              "You" (name (monster1 event)))
+            "You" (name (monster1 event)))
           (if (eql (monster1 event) *player*)
-              "" "s")
+            "" "s")
           (name (monster2 event)) (name (monster2 event))))
 
 
-;;SECTION 7: Stack processing
+;; SECTION 7: Stack processing
 
 (defun count-vandals ()
   (if *monsterstack*
-      (loop for (monster . nil) in *monsterstack*
-         counting (typep monster 'vandal) into vandals
-         counting (not (typep monster 'troll)) into monsters
-         finally (return (/ vandals monsters)))
-      0))
+    (loop :for (monster . nil) :in *monsterstack*
+          :counting (typep monster 'vandal) :into vandals
+          :counting (not (typep monster 'troll)) :into monsters
+          :finally (return (/ vandals monsters)))
+    0))
 
 (defun occupied (y x)
   (let ((tile (aref *map* y x)))
     (not (and (passable tile) (not (monster tile))))))
 
 (defun random-free-position ()
-  (loop for x = (1+ (random 74))
-        for y = (1+ (random 19))
-        while (occupied y x)
-        finally (return (cons y x))))
+  (loop :for x := (1+ (random 74))
+        :for y := (1+ (random 19))
+        :while (occupied y x)
+        :finally (return (cons y x))))
 
 
 (defun add-to-stack (monster time)
@@ -1683,7 +1729,7 @@ Ideas and notes:
 
 (defun run-ai (monster)
   (let ((action (ai monster)))
-    ;;(format t "~a doing action ~a~%" monster action)
+    ;; (format t "~a doing action ~a~%" monster action)
     (do-action monster action)
     (when (and (eql monster *player*)
                (< (random 100) (time action)))
@@ -1697,57 +1743,61 @@ Ideas and notes:
   (unless *monsterstack* (return-from run-stack :quit))
   (let ((min-time (cdar *monsterstack*)))
     (run-ai (setf *curmonster* (car (pop *monsterstack*))))
-    (loop for x in *monsterstack* do (decf (cdr x) min-time))
+    (loop :for x :in *monsterstack*
+          :do (decf (cdr x) min-time))
     (return-from run-stack :ok)))
 
-;;SECTION 8: Generating dungeon
+;; SECTION 8: Generating dungeon
 
 (defun make-room ()
   (let ((width (+ (random 10) 4))
         (height (+ (random 5) 3)))
     (let ((start-x  (random (- 74 width)))
           (start-y  (random (- 19 height))))
-      (loop for x from (+ start-x 1) to (+ start-x width)
-           do (loop for y from (+ start-y 1) to (+ start-y height)
-                 do (setf (aref *map* y x) (make-instance 'concrete-floor :x x :y y))))
+      (loop :for x :from (+ start-x 1) :to (+ start-x width)
+            :do (loop :for y :from (+ start-y 1) :to (+ start-y height)
+                      :do (setf (aref *map* y x) (make-instance 'concrete-floor :x x :y y))))
       (push (cons (+ start-y 1 (random height)) (+ start-x 1 (random width))) *roompoints*))))
 
 (defun tonnel (p1 p2)
   (when (= (car p1) (car p2))
-      (loop for x from (min (cdr p1) (cdr p2)) to (max (cdr p1) (cdr p2))
-         do (setf (aref *map* (car p1) x) (make-instance 'concrete-floor :x x :y (car p1))))
-      (return-from tonnel t))
+    (loop :for x :from (min (cdr p1) (cdr p2)) :to (max (cdr p1) (cdr p2))
+          :do (setf (aref *map* (car p1) x) (make-instance 'concrete-floor :x x :y (car p1))))
+    (return-from tonnel t))
   (when (= (cdr p1) (cdr p2))
-      (loop for y from (min (car p1) (car p2)) to (max (car p1) (car p2))
-         do (setf (aref *map* y (cdr p1)) (make-instance 'concrete-floor :x (cdr p1) :y y)))
-      (return-from tonnel t))
+    (loop :for y :from (min (car p1) (car p2)) :to (max (car p1) (car p2))
+          :do (setf (aref *map* y (cdr p1)) (make-instance 'concrete-floor :x (cdr p1) :y y)))
+    (return-from tonnel t))
   (let ((p3 (nth (random 2) (list (cons (car p1) (cdr p2)) (cons (car p2) (cdr p1))))))
     (tonnel p1 p3) (tonnel p3 p2)))
 
 (defun generate-map (&key stairs player &aux upstair downstair)
   (setf *map* (make-array '(21 76)))
   (setf *monsterstack* nil)
-  (loop for x from 0 to 75
-        do (loop for y from 0 to 20
-                do (setf (aref *map* y x)
-                         (make-instance 'wall :x x :y y))))
+  (loop :for x :from 0 :to 75
+        :do (loop :for y :from 0 :to 20
+                  :do (setf (aref *map* y x)
+                            (make-instance 'wall :x x :y y))))
   (setf *roompoints* nil)
-  (loop for x from 1 to (+ 10 (random 10))
-     do (make-room))
-;;Connecting...
+  (loop :repeat (+ 10 (random 10))
+        :do (make-room))
+  ;; Connecting...
   (let* ((n (length *roompoints*))
          (ar (make-array n :initial-element nil)))
-    (flet ((finish-p () (loop for i from 0 to (1- n) always (aref ar i)))
+    (flet ((finishp ()
+             (loop :for i :from 0 :to (1- n)
+                   :always (aref ar i)))
            (connect (a b)
              (let ((p1 (nth a *roompoints*))
                    (p2 (nth b *roompoints*)))
                (tonnel p1 p2)
                (setf (aref ar a) t (aref ar b) t))))
-      (loop for a = (random n)
-            for b = (random n)
-            if (/= a b) do (connect a b)
-            until (finish-p))))
-;;Staircases
+      (loop :for a := (random n)
+            :for b := (random n)
+            :if (/= a b)
+              :do (connect a b)
+            :until (finishp))))
+  ;; Staircases
   (let ((n (length *roompoints*)))
     (ecase stairs
       ((nil) nil)
@@ -1756,39 +1806,38 @@ Ideas and notes:
                        (make-instance 'staircase :direction stairs :y y :x x))
                  (if (eql stairs :u) (setf upstair (cons y x))
                      (setf downstair (cons y x)))))
-      (:ud (loop for p1 = (nth (random n) *roompoints*)
-                 for p2 = (nth (random n) *roompoints*)
-                 while (equal p1 p2)
-                 finally
-                 (setf (aref *map* (car p1) (cdr p1))
-                       (make-instance 'staircase
-                                      :direction :u :y (car p1) :x (cdr p1)))
-                 (setf upstair p1)
-                 (setf (aref *map* (car p2) (cdr p2))
-                       (make-instance 'staircase
-                                      :direction :d :y (car p2) :x (cdr p2)))
-                 (setf downstair p2)))))
-;;Spawning player
+      (:ud (loop :for p1 := (nth (random n) *roompoints*)
+                 :for p2 := (nth (random n) *roompoints*)
+                 :while (equal p1 p2)
+                 :finally
+                    (setf (aref *map* (car p1) (cdr p1))
+                          (make-instance 'staircase
+                            :direction :u :y (car p1) :x (cdr p1)))
+                    (setf upstair p1)
+                    (setf (aref *map* (car p2) (cdr p2))
+                          (make-instance 'staircase
+                            :direction :d :y (car p2) :x (cdr p2)))
+                    (setf downstair p2)))))
+  ;; Spawning player
   (setf *player*
         (ecase player
           ((nil) nil)
           (:u (spawn (make-instance 'player) :position upstair))
           (:d (spawn (make-instance 'player) :position downstair))
           (:random (spawn (make-instance 'player)))))
-;;Spawning monsters
-  (loop for x from 1 to (+ 8 (random 5))
-       do (case (random 2)
-            (0 (spawn (make-instance 'noob)))
-            (1 (spawn (make-instance 'user)))))
-  (loop for x from 1 to 5
-       do (spawn (make-instance 'admin)))
-  (loop for x from 1 to 2
-       do (spawn (make-instance 'bureaucrat)))
-  (spawn (make-instance 'jimbo))
-)
+  ;; Spawning monsters
+  (loop :repeat (+ 8 (random 5))
+        :do (case (random 2)
+              (0 (spawn (make-instance 'noob)))
+              (1 (spawn (make-instance 'user)))))
+  (loop :repeat 5
+        :do (spawn (make-instance 'admin)))
+  (loop :repeat 2
+        :do (spawn (make-instance 'bureaucrat)))
+  (spawn (make-instance 'jimbo)))
 
 
-;;SECTION 9: Printing routines
+;; SECTION 9: Printing routines
 
 (defun out-char (obj)
   "Actually outputs the character of tile, monster or item"
@@ -1797,30 +1846,32 @@ Ideas and notes:
     (mvaddch (+ *dy* (y obj)) (+ *dx* (x obj)) char)))
 
 (defun print-map ()
-  (loop for x from 0 to 75
-        do (loop for y from 0 to 20
-                do (out-char (aref *map* y x)))))
+  (loop :for x :from 0 :to 75
+        :do (loop :for y :from 0 :to 20
+                  :do (out-char (aref *map* y x)))))
 
-;;(mvaddstr 0 0 (make-string 79 :initial-element #\Space));
-;;doesn't work due to unknown bug
+;; (mvaddstr 0 0 (make-string 79 :initial-element #\Space));
+;; doesn't work due to unknown bug
 
 (defun clean-line (line)
-  (loop for i from 0 to 79 do (mvaddch line i #\Space)))
+  (loop :for i :from 0 :to 79
+        :do (mvaddch line i #\Space)))
 
 (defun clean-column (column)
-  (loop for i from 1 to 23 do (mvaddch i column #\Space)))
+  (loop :for i :from 1 :to 23
+        :do (mvaddch i column #\Space)))
 
 (defun display-message (str)
   (if str
-      (progn
-        (attrset :cdark)
-        (clean-line 0)
-        (safe-print 0 1 str)
-        (when *messages*
-          (attrset :cyellow)
-          (mvprintw 0 70 "[MORE]"))
-        (refresh))
-      (display-simple-message "No more messages.")))
+    (progn
+      (attrset :cdark)
+      (clean-line 0)
+      (safe-print 0 1 str)
+      (when *messages*
+        (attrset :cyellow)
+        (mvprintw 0 70 "[MORE]"))
+      (refresh))
+    (display-simple-message "No more messages.")))
 
 (defun display-simple-message (str)
   (attrset :cdark)
@@ -1836,10 +1887,10 @@ Ideas and notes:
   (clean-line 23)
   (let ((items (items (aref *map* y x)))
         (curpos 1))
-    (loop for i in items
-          for n = (name i)
-          do (attrset (nth-value 1 (print-char i))) (mvprintw 23 curpos n)
-           (incf curpos (+ (length n) 2)))))
+    (loop :for i :in items
+          :for n := (name i)
+          :do (attrset (nth-value 1 (print-char i))) (mvprintw 23 curpos n)
+              (incf curpos (+ (length n) 2)))))
 
 (defun show-status ()
   (clean-line 22)
@@ -1853,7 +1904,7 @@ Ideas and notes:
   (mvprintw 22 50 (format nil "Karma:~d" (karma *player*)))
   (attrset :CPINK)
   (mvprintw 22 63 (format nil "Rouge:~d" (rouge *player*)))
-;;Wdefcon
+  ;; Wdefcon
   (clean-column 1)
   (attrset :CSKY) (mvaddch 20 0 #\5)
   (attrset :CGREEN) (mvaddch 19 0 #\4)
@@ -1884,15 +1935,15 @@ Ideas and notes:
 (defun recap-messages ()
   (erase)
   (attrset :cgray)
-  (loop for x = *allmessages* then (cdr x)
-     for i from 1 to 20
-     do (safe-print i 1 (if (car x) (car x) "-"))))
+  (loop :for x := *allmessages* :then (cdr x)
+        :for i :from 1 :to 20
+        :do (safe-print i 1 (if (car x) (car x) "-"))))
 
 (defun safe-print (y x str)
   "Workaround for a bug"
-  (loop for c across str
-        for xx = x then (1+ xx)
-        do (mvaddch y xx c)))
+  (loop :for c :across str
+        :for xx := x :then (1+ xx)
+        :do (mvaddch y xx c)))
 
 (defun yes-or-no (str)
   (display-simple-message (format nil "~a (y/n)" str))
@@ -1913,7 +1964,7 @@ Ideas and notes:
     ((55 449) (cons -1 -1))
     (t nil)))
 
-;;SECTION 10: Main sequence
+;; SECTION 10: Main sequence
 
 (defun splash-screen ()
   (attrset :cpink)
@@ -1930,16 +1981,16 @@ Ideas and notes:
 
 (defun load-hiscore ()
   (unless (probe-file "hiscore") (return-from load-hiscore nil))
-  (with-open-file (in "hiscore"
-                      :external-format #+clisp charset:utf-8 #+sbcl :utf-8)
+  (with-open-file (in "hiscore" :external-format *external-format*)
     (let* ((*read-eval* nil)
            (hashentry (read in))
            (hiscore (read in)))
       (if (equal (genmd5 hiscore) hashentry) hiscore :error))))
 
 (defun save-hiscore (hiscore)
-  (with-open-file (out "hiscore" :direction :output :if-exists :supersede
-                       :external-format #+clisp charset:utf-8 #+sbcl :utf-8)
+  (with-open-file (out "hiscore" :direction :output
+                                 :if-exists :supersede
+                                 :external-format *external-format*)
     (let ((*print-readably* t))
       (format out "~s~%~s " (genmd5 hiscore) hiscore))))
 
@@ -1960,11 +2011,12 @@ Ideas and notes:
                              #'> :key #'cdr))
   (when (> (length hiscore) 10)
     (setf hiscore (nbutlast hiscore)))
-  (let ((ask (loop for entry in hiscore
-                   do (incf number)
-                   when (eql (car entry) :player) do (loop-finish)
-                   finally (if (eql (car entry) :player) (return entry) nil))))
-             ;(find :player hiscore :key #'car)))
+  (let ((ask (loop :for entry :in hiscore
+                   :do (incf number)
+                   :when (eql (car entry) :player)
+                     :do (loop-finish)
+                   :finally (if (eql (car entry) :player) (return entry) nil))))
+                                        ;(find :player hiscore :key #'car)))
     (when ask
       (erase) (attrset :cyellow)
       (mvprintw 1 1 "Congratulations! You made the top ten!")
@@ -1976,12 +2028,13 @@ Ideas and notes:
   (attrset :cpink)
   (mvprintw 1 1 "Top Rouge Admins:")
   (attrset :cwhite)
-  (loop for i from 1 to 10
-        for entry in hiscore
-        when (= i number) do (attrset :cyellow)
-        do (mvprintw (+ 2 i) 1 (format nil "~a. ~15a~a"
-                                       i (car entry) (cdr entry)))
-        when (= i number) do (attrset :cwhite))
+  (loop :for i :from 1 :to 10
+        :for entry in hiscore
+        :when (= i number) do (attrset :cyellow)
+          :do (mvprintw (+ 2 i) 1
+                        (format nil "~a. ~15a~a" i (car entry) (cdr entry)))
+        :when (= i number)
+          :do (attrset :cwhite))
   (save-hiscore hiscore)
 
   (mvprintw 24 50 "[press any key to quit]")
@@ -1997,27 +2050,41 @@ Ideas and notes:
        (hiscore)
        (return))))
 
-(defun start-game (&key debug)
+(defun start-game ()
   (setf *random-state* (make-random-state t)
         *allmessages* nil
         *messages* nil)
-  (if debug (connect-console)
-   (create-console "textconsole.exe"))
+  (connect-console)
   (erase)
   (splash-screen)
   (unwind-protect
-       (progn
-         (when (init-controls) (error "Cannot find control file. This sucks :("))
-               (erase)
-               (generate-map :stairs nil :player :random)
-               (print-map)
-               (refresh)
-               (runtime))
-    (close-console))
-    (unless debug #+clisp (ext:quit) #+sbcl (sb-ext:quit)))
+      (progn
+        (init-controls)
+        (erase)
+        (generate-map :stairs nil :player :random)
+        (print-map)
+        (refresh)
+        (runtime))
+    (close-console)))
 
-#+clisp
-(defun make-exec ()
-  (ext:saveinitmem "rouge.exe"
-                   :quiet t :norc t :init-function #'start-game
-                   :start-package :rougelike :executable t))
+(defun main ()
+  #+unix
+  (progn
+    #-swank
+    (if (string= "dumb" (uiop:getenv "TERM"))
+      (error "Cannot run rouge in a dumb terminal.")
+      (start-game))
+    #+swank
+    (uiop:run-program (print (format nil "~A -e ~A \\
+     --eval '(progn (push ~S asdf:*central-registry*)
+               (ql:quickload :rouge))' \\
+     --eval '(unwind-protect (rouge:start-game)
+               (sb-ext:quit))'"
+                                *xterm-program*
+                                *lisp-program*
+                                *source-directory*))))
+  #-unix
+  (progn
+    (error "Not implemented on non-unix systems yet.")))
+
+;;;; THE END ;;;;
