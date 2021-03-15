@@ -1,0 +1,8 @@
+The Rougelike! is subject to GNU General Public License. You may
+distribute and modify its source code and binaries as long as they
+stay under the same license. rogue.exe was compiled with CLISP 2.38
+for Windows, and includes all of it's source code. The exact source
+code with which it was compiled may be provided by me if you REALLY
+want it, because that's what CLISP licensing terms require to do. But
+you probably don't want it because CLISP source code is freely
+available from http://clisp.sourceforge.net.
