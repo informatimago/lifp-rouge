@@ -5,29 +5,29 @@
   (:use :common-lisp :cffi :trivial-gray-streams)
   (:export :refresh :erase :move :*stdscr*
            :create-console :close-console :connect-console
-           :echo :noecho
-           :addch :mvaddch :addstr :mvaddstr
-           :printw :mvprintw :attron :Attroff
-           :attrset :getch :mvgetch :getyx :attrset
+   :echo :noecho
+   :addch :mvaddch :addstr :mvaddstr
+   :printw :mvprintw :attron :Attroff
+   :attrset :getch :mvgetch :getyx :attrset
            :getstr :mvgetstr :getnstr :mvgetnstr
            :scrollok :scroll :scrl
-           :derwin :newwin :subwin :delwin
-           :wrefresh :werase :waddch :mvwaddch
-           :wgetch :mvwgetch :wgetstr :mvwgetstr
-           :wattrset :waddstr :mvwaddstr :wgetyx
-           :ungetch :wechochar
-           :curses-code-char :repl-console
-           ))
+   :derwin :newwin :subwin :delwin
+   :wrefresh :werase :waddch :mvwaddch
+   :wgetch :mvwgetch :wgetstr :mvwgetstr
+   :wattrset :waddstr :mvwaddstr :wgetyx
+   :ungetch :wechochar
+   :curses-code-char :repl-console
+   ))
 
 (in-package :curses)
 
 (define-foreign-library curses
-  (:unix "libncurses.so.5")
+  (:unix #-darwin "libncurses.so.5"
+         #+darwin "libncurses.5.dylib")
   (t (:default "curses")))
 
-;(eval-when (:compile-toplevel :load-toplevel :execute)
-
-(use-foreign-library curses);)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (use-foreign-library curses))
 
 (defctype chtype :long)
 
@@ -61,10 +61,10 @@
 
 
 (defcfun "init_pair" :int (pair :short)
-         (foreground :short) (background :short))
+  (foreground :short) (background :short))
 
 
-;;Default colors
+;; Default colors
 
 #-unix
 (progn
@@ -100,7 +100,7 @@
   (init-pair +color-yellow+ +color-yellow+ +color-black+)
   (init-pair +color-white+ +color-white+ +color-black+))
 
-;;Compatibility layer for old socket interface
+;; Compatibility layer for old socket interface
 (defun connect-console ()
   (use-foreign-library curses)
   (initscr)
@@ -116,7 +116,7 @@
 
 (defun close-console () (endwin))
 
-;;Functions that do something interesting
+;; Functions that do something interesting
 
 (defcfun "move" :int (y :int) (x :int))
 
@@ -134,16 +134,16 @@
 
 (defcfun "mvaddstr" :int (y :int) (x :int) (string :string))
 
-;;The next two functions are just synonyms for the two above. If you want
-;;control strings, use format.
+;; The next two functions are just synonyms for the two above. If you want
+;; control strings, use format.
 
 (defun printw (str) (addstr str))
 
 (defun mvprintw (y x str) (mvaddstr y x str))
 
-;;Attributes conversion
+;; Attributes conversion
 
-;(defconstant +a-attributes+ #xffff0000L)
+;; (defconstant +a-attributes+ #xffff0000L)
 
 (defconstant +a-attributes+ #xffffff00)
 
@@ -185,14 +185,14 @@
 (defun attroff (attr)
   (c-attroff (color-code attr)))
 
-;;curses.dll doesn't have attrset for some reason
+;; curses.dll doesn't have attrset for some reason
 (defcfun ("wattrset" c-attrset) :int (window :pointer) (attr :int))
 
 (defun attrset (attr)
   (c-attrset *stdscr* (color-code attr)))
 
 
-;(defcfun ("getch" c-getch) :int)
+;; (defcfun ("getch" c-getch) :int)
 
 (defcfun "wgetch" :int (window :pointer))
 
@@ -223,7 +223,7 @@
   (with-foreign-slots ((cury curx) wnd window)
     (list cury curx)))
 
-;;Getstr
+;; Getstr
 
 (defcfun ("getstr" c-getstr) :int (str :pointer))
 
@@ -243,7 +243,7 @@
         (c-mvgetstr y x str))
     (noecho)))
 
-;;curses.dll doesn't have getnstr and mvgetnstr for some reason
+;; curses.dll doesn't have getnstr and mvgetnstr for some reason
 
 (defcfun ("wgetnstr" c-getnstr) :int (window :pointer) (str :pointer) (n :int))
 
@@ -254,8 +254,8 @@
         (c-getnstr *stdscr* str n))
     (noecho)))
 
-;(defcfun ("wmvgetstr" c-mvgetnstr) :int (window :pointer) (y :int) (x :int)
-;         (str :pointer) (n :int))
+;; (defcfun ("wmvgetstr" c-mvgetnstr) :int (window :pointer) (y :int)
+;;         (x :int) (str :pointer) (n :int))
 
 (defun mvgetnstr (y x n)
   (move y x)
@@ -265,7 +265,7 @@
         (c-getnstr *stdscr* str n))
     (noecho)))
 
-;;Scrolling
+;; Scrolling
 
 (defcfun "scrollok" :int (window :pointer) (bf :boolean))
 
@@ -273,16 +273,16 @@
 
 (defcfun "scrl" :int (n :int))
 
-;;Windows
+;; Windows
 
 (defcfun "derwin" :pointer (orig :pointer)
-         (nlines :int) (ncols :int) (begin-y :int) (begin-x :int))
+  (nlines :int) (ncols :int) (begin-y :int) (begin-x :int))
 
 (defcfun "newwin" :pointer (nlines :int) (ncols :int)
-         (begin-y :int) (begin-x :int))
+  (begin-y :int) (begin-x :int))
 
 (defcfun "subwin" :pointer (orig :pointer)
-         (nlines :int) (ncols :int) (begin-y :int) (begin-x :int))
+  (nlines :int) (ncols :int) (begin-y :int) (begin-x :int))
 
 (defcfun "delwin" :int (window :pointer))
 
@@ -326,32 +326,32 @@
   "Returns a character that is corresponding to a given curses
 code. May be system dependent."
   (case code
-    ;Numpad
+    ;; Numpad
     (458 #\/) (463 #\*) (464 #\-) (465 #\+) (459 #\Return)
     (t (if (< code 256) (code-char code) #\Space))))
 
-;;Improved version of getstr with support for keymaps.
-;;keymap is a hash table which maps key code to the function
+;; Improved version of getstr with support for keymaps.
+;; keymap is a hash table which maps key code to the function
 
 (defun get-string (window keymap)
   (loop with buffer
         for c = (wgetch window)
         for kc = (gethash c keymap)
         when (= c 13) do
-           (scroll window)
-           (wmove window (first (wgetyx window)) 0)
-           (return (coerce (nreverse buffer) 'string))
+          (scroll window)
+          (wmove window (first (wgetyx window)) 0)
+          (return (coerce (nreverse buffer) 'string))
         if kc do (setf buffer (funcall kc window buffer))
-        else do (let ((cc (curses-code-char c)))
-                  (case c
-                    (8 (c-waddch window 8)
-                       (waddch window #\Space)
-                       (c-waddch window 8)
-                       (pop buffer))
-                    (t (waddch window cc) (push cc buffer))))))
+          else do (let ((cc (curses-code-char c)))
+                    (case c
+                      (8 (c-waddch window 8)
+                         (waddch window #\Space)
+                         (c-waddch window 8)
+                         (pop buffer))
+                      (t (waddch window cc) (push cc buffer))))))
 
 
-;;REPL Console
+;; REPL Console
 
 (defclass curses-out (fundamental-character-output-stream
                       trivial-gray-stream-mixin)
@@ -367,8 +367,8 @@ code. May be system dependent."
 
 (defmethod stream-write-char ((s curses-out) c)
   (if (or (char-equal c #\Newline) (char-equal c #\Return))
-      (progn (scroll (window s)) (wmove (window s) (1- (height s)) 0))
-      (waddch (window s) c)))
+    (progn (scroll (window s)) (wmove (window s) (1- (height s)) 0))
+    (waddch (window s) c)))
 
 (defmethod stream-line-column ((s curses-out))
   (second (wgetyx (window s))))
@@ -389,21 +389,21 @@ code. May be system dependent."
 
 (defmethod stream-read-char ((s curses-in))
   (if (buffer s)
-      (pop (buffer s))
-      (refill-buffer s (get-string (window s) (keymap s)))))
+    (pop (buffer s))
+    (refill-buffer s (get-string (window s) (keymap s)))))
 
-;;  (let* ((c (wgetch (window s)))
-;;         (cc (curses-code-char c)))
-;;    (cond ((= c 27) (error 'out-of-repl))
-;;          ((= c 13)
-;;           (scroll (window s)) (wmove (window s) (1- (height s)) 0) cc)
-;;          (t (c-waddch (window s) c) cc))))
+;;   (let* ((c (wgetch (window s)))
+;;          (cc (curses-code-char c)))
+;;     (cond ((= c 27) (error 'out-of-repl))
+;;           ((= c 13)
+;;            (scroll (window s)) (wmove (window s) (1- (height s)) 0) cc)
+;;           (t (c-waddch (window s) c) cc))))
 
 
 (defcfun ("PDC_ungetch" ungetch) :int (char :int))
 
 (defmethod stream-unread-char ((s curses-in) c)
-  ;;(ungetch (char-code c))
+  ;; (ungetch (char-code c))
   (push c (buffer s))
   (c-waddch (window s) 8))
 
@@ -419,11 +419,11 @@ code. May be system dependent."
            (refresh))
   (let* ((wnd (derwin *stdscr* height 0 0 0))
          (*standard-input* (make-instance 'curses-in
-                                          :window wnd
-                                          :height height
-                                          :keymap repl-keymap))
+                             :window wnd
+                             :height height
+                             :keymap repl-keymap))
          (*standard-output* (make-instance 'curses-out
-                                           :window wnd :height height))
+                              :window wnd :height height))
          (*print-escape* nil))
     (flet ((prompt ()
              (wattrset wnd :cgray)
@@ -431,12 +431,12 @@ code. May be system dependent."
              (waddch wnd #\>) (waddch wnd #\Space))
            (pr (x) (print x) (scroll wnd))
            (rd () (let ((r (read))) (push r *repl-history*) r)))
-      ;;repl-keymap
-      (setf (gethash 27 repl-keymap) ;;ESC exits
+      ;; repl-keymap
+      (setf (gethash 27 repl-keymap) ; ESC exits
             (lambda (window buffer)
               (declare (ignore window buffer))
               (error 'out-of-repl)))
-      (setf (gethash 259 repl-keymap) ;;UP arrow for previous command
+      (setf (gethash 259 repl-keymap) ; UP arrow for previous command
             (lambda (window buffer)
               (if *repl-history*
                   (let ((pop (format nil "~s" (pop *repl-history*))))
